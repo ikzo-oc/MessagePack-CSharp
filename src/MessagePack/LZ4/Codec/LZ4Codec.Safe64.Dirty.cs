@@ -81,7 +81,8 @@ namespace MessagePack.LZ4
             int src_0,
             int dst_0,
             int src_len,
-            int dst_maxlen)
+            int dst_maxlen,
+            ref LZ4F_preferences_t prefs)
         {
             unchecked
             {
@@ -313,7 +314,8 @@ namespace MessagePack.LZ4
             int src_0,
             int dst_0,
             int src_len,
-            int dst_maxlen)
+            int dst_maxlen,
+            ref LZ4F_preferences_t prefs)
         {
             unchecked
             {

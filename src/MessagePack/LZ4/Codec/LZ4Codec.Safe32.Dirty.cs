@@ -72,7 +72,54 @@ namespace MessagePack.LZ4
 {
     public static partial class LZ4Codec
     {
+        private static void LZ4_compressCtx_FrameHeader(
+            byte[] dst,
+            ref int dst_p,
+            LZ4F_preferences_t prefs)
+        {
+            /* Magic Number */
+            Poke4(dst, dst_p, MAGICNUMBER);
+            dst_p += 4;
+
+            /* FLG Byte */
+            dst[dst_p++] = (byte)(((1 & _2BITS) << 6)    /* Version('01') */
+                + (((byte)prefs.frameInfo.blockMode & _1BIT) << 5)
+                + (((byte)prefs.frameInfo.blockChecksumFlag & _1BIT) << 4)
+                + ((prefs.frameInfo.contentSize > 0 ? 1 : 0) << 3)
+                + (((byte)prefs.frameInfo.contentChecksumFlag & _1BIT) << 2)
+                + (prefs.frameInfo.dictID > 0 ? 1 : 0));
+
+            /* BD Byte */
+            dst[dst_p++] = (byte)(((byte)prefs.frameInfo.blockSizeID & _3BITS) << 4);
+
+            /* Optional Frame content size field */
+            if (prefs.frameInfo.contentSize != 0)
+            {
+                Poke8(dst, dst_p, prefs.frameInfo.contentSize);
+                dst_p += 8;
+                //cctxPtr->totalInSize = 0;
+            }
+
+            /* Optional dictionary ID field */
+            if (prefs.frameInfo.dictID != 0)
+            {
+                Poke4(dst, dst_p, prefs.frameInfo.dictID);
+                dst_p += 8;
+            }
+
+            /* Header CRC Byte */
+            dst[dst_p] = LZ4F_headerChecksum(dst, 0, dst_p);
+            dst_p++;
+        }
+
         #region LZ4_compressCtx
+
+        private static void LZ4_compressCtx_FrameFooter(
+            byte[] dst,
+            ref int dst_p,
+            LZ4F_preferences_t prefs)
+        {
+        }
 
         private static int LZ4_compressCtx_safe32(
             int[] hash_table,
@@ -81,7 +128,8 @@ namespace MessagePack.LZ4
             int src_0,
             int dst_0,
             int src_len,
-            int dst_maxlen)
+            int dst_maxlen,
+            ref LZ4F_preferences_t prefs)
         {
             unchecked
             {
@@ -117,6 +165,9 @@ namespace MessagePack.LZ4
                 hash_table[(((Peek4(src, src_p)) * 2654435761u) >> HASH_ADJUST)] = (src_p - src_base);
                 src_p++;
                 h_fwd = (((Peek4(src, src_p)) * 2654435761u) >> HASH_ADJUST);
+
+                // Header
+                LZ4_compressCtx_FrameHeader(dst, ref dst_p, prefs);
 
                 // Main Loop
                 while (true)
@@ -290,6 +341,9 @@ namespace MessagePack.LZ4
                     dst_p += src_end - src_anchor;
                 }
 
+                // Footer
+                LZ4_compressCtx_FrameFooter(dst, ref dst_p);
+
                 // End
                 return ((dst_p) - dst_0);
             }
@@ -306,7 +360,8 @@ namespace MessagePack.LZ4
             int src_0,
             int dst_0,
             int src_len,
-            int dst_maxlen)
+            int dst_maxlen,
+            ref LZ4F_preferences_t prefs)
         {
             unchecked
             {
@@ -655,7 +710,91 @@ namespace MessagePack.LZ4
         }
 
         #endregion
+
+        #region XXHASH
+
+        private static byte LZ4F_headerChecksum(byte[] header, int offset, int length)
+        {
+            var xxh = XXH32(header, offset, length, 0);
+            return (byte) (xxh >> 8);
+        }
+
+        private const uint PRIME32_1 = 2654435761U;
+        private const uint PRIME32_2 = 2246822519U;
+        private const uint PRIME32_3 = 3266489917U;
+        private const uint PRIME32_4 = 668265263U;
+        private const uint PRIME32_5 = 374761393U;
+
+        private static uint XXH_rotl32(uint value, int shift)
+        {
+            return (value << shift) | (value >> (32 - shift));
+        }
+
+        private static uint XXH32_round(uint seed, uint input)
+        {
+            seed += input * PRIME32_2;
+            seed = XXH_rotl32(seed, 13);
+            seed *= PRIME32_1;
+            return seed;
+        }
+
+        private static uint XXH32(byte[] input, int offset, int len, uint seed)
+        {
+            var p = offset;
+            var end = p + len;
+            uint h32;
+
+            if (len >= 16)
+            {
+                var limit = end - 16;
+                var v1 = seed + PRIME32_1 + PRIME32_2;
+                var v2 = seed + PRIME32_2;
+                var v3 = seed + 0;
+                var v4 = seed - PRIME32_1;
+
+                do
+                {
+                    v1 = XXH32_round(v1, Peek4(input, p)); p += 4;
+                    v2 = XXH32_round(v2, Peek4(input, p)); p += 4;
+                    v3 = XXH32_round(v3, Peek4(input, p)); p += 4;
+                    v4 = XXH32_round(v4, Peek4(input, p)); p += 4;
+                }
+                while (p <= limit);
+
+                h32 = XXH_rotl32(v1, 1) + XXH_rotl32(v2, 7) + XXH_rotl32(v3, 12) + XXH_rotl32(v4, 18);
+            }
+            else
+            {
+                h32 = seed + PRIME32_5;
+            }
+
+            h32 += (uint)len;
+
+            while (p + 4 <= end)
+            {
+                h32 += Peek4(input, p) * PRIME32_3;
+                h32 = XXH_rotl32(h32, 17) * PRIME32_4;
+                p += 4;
+            }
+
+            while (p < end)
+            {
+                h32 += input[p] * PRIME32_5;
+                h32 = XXH_rotl32(h32, 11) * PRIME32_1;
+                p++;
+            }
+
+            h32 ^= h32 >> 15;
+            h32 *= PRIME32_2;
+            h32 ^= h32 >> 13;
+            h32 *= PRIME32_3;
+            h32 ^= h32 >> 16;
+
+            return h32;
+        }
     }
+
+    #endregion
 }
 
 // ReSharper restore RedundantIfElseBlock

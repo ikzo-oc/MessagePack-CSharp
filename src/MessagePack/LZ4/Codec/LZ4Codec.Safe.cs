@@ -61,6 +61,26 @@ namespace MessagePack.LZ4
             buffer[offset + 1] = (byte)(value >> 8);
         }
 
+        internal static void Poke4(byte[] buffer, int offset, uint value)
+        {
+            buffer[offset] = (byte)value;
+            buffer[offset + 1] = (byte)(value >> 8);
+            buffer[offset + 2] = (byte)(value >> 16);
+            buffer[offset + 3] = (byte)(value >> 24);
+        }
+
+        internal static void Poke8(byte[] buffer, int offset, ulong value)
+        {
+            buffer[offset] = (byte)value;
+            buffer[offset + 1] = (byte)(value >> 8);
+            buffer[offset + 2] = (byte)(value >> 16);
+            buffer[offset + 3] = (byte)(value >> 24);
+            buffer[offset + 4] = (byte)(value >> 32);
+            buffer[offset + 5] = (byte)(value >> 40);
+            buffer[offset + 6] = (byte)(value >> 48);
+            buffer[offset + 7] = (byte)(value >> 56);
+        }
+
         internal static ushort Peek2(byte[] buffer, int offset)
         {
             // NOTE: It's faster than BitConverter.ToUInt16 (suprised? me too)
@@ -329,7 +349,8 @@ namespace MessagePack.LZ4
             int inputLength,
             byte[] output,
             int outputOffset,
-            int outputLength)
+            int outputLength,
+            ref LZ4F_preferences_t prefs)
         {
             CheckArguments(input, inputOffset, inputLength, output, outputOffset, outputLength);
             if (outputLength == 0) return 0;
@@ -337,12 +358,12 @@ namespace MessagePack.LZ4
             if (inputLength < LZ4_64KLIMIT)
             {
                 var hashTable = HashTablePool.GetUShortHashTablePool();
-                return LZ4_compress64kCtx_safe32(hashTable, input, output, inputOffset, outputOffset, inputLength, outputLength);
+                return LZ4_compress64kCtx_safe32(hashTable, input, output, inputOffset, outputOffset, inputLength, outputLength, ref prefs);
             }
             else
             {
                 var hashTable = HashTablePool.GetIntHashTablePool();
-                return LZ4_compressCtx_safe32(hashTable, input, output, inputOffset, outputOffset, inputLength, outputLength);
+                return LZ4_compressCtx_safe32(hashTable, input, output, inputOffset, outputOffset, inputLength, outputLength, ref prefs);
             }
         }
 
@@ -360,7 +381,8 @@ namespace MessagePack.LZ4
             int inputLength,
             byte[] output,
             int outputOffset,
-            int outputLength)
+            int outputLength,
+            ref LZ4F_preferences_t prefs)
         {
             CheckArguments(input, inputOffset, inputLength, output, outputOffset, outputLength);
             if (outputLength == 0) return 0;
@@ -368,12 +390,12 @@ namespace MessagePack.LZ4
             if (inputLength < LZ4_64KLIMIT)
             {
                 var hashTable = HashTablePool.GetUShortHashTablePool();
-                return LZ4_compress64kCtx_safe64(hashTable, input, output, inputOffset, outputOffset, inputLength, outputLength);
+                return LZ4_compress64kCtx_safe64(hashTable, input, output, inputOffset, outputOffset, inputLength, outputLength, ref prefs);
             }
             else
             {
                 var hashTable = HashTablePool.GetIntHashTablePool();
-                return LZ4_compressCtx_safe64(hashTable, input, output, inputOffset, outputOffset, inputLength, outputLength);
+                return LZ4_compressCtx_safe64(hashTable, input, output, inputOffset, outputOffset, inputLength, outputLength, ref prefs);
             }
         }
 
